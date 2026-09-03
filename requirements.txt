@@ -1,7 +1,7 @@
 requests
 yfinance
 pandas
-python-telegram-bot
+python-telegram-bot[job-queue]
 lxml
 pytz
 flask
