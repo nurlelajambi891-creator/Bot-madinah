@@ -1,5 +1,5 @@
 """
-V20 SR+PSIKOLOGI REAL-TIME KOLABORASI - MADINAH
+V21 DENGAN TOMBOL + SR REAL-TIME - MADINAH
 - M5 (5 menit) + M15 (15 menit) + SWING D1 (harian)
 - Kolaborasi: Trend EMA + RSI + COT + Histori Chart Lama & Baru + Jam Terbaik
 - Probabilitas gabungan
@@ -8,8 +8,8 @@ V20 SR+PSIKOLOGI REAL-TIME KOLABORASI - MADINAH
 import os, requests, yfinance as yf, pandas as pd
 from datetime import datetime
 import pytz
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from flask import Flask
 import threading
 
@@ -28,7 +28,7 @@ JAM_TERBAIK_PROB = {
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home():
-    return f"Bot V20 SR Psikologi - {datetime.now(SAUDI_TZ).strftime('%H:%M:%S AST')} - OK"
+    return f"Bot V21 Tombol - {datetime.now(SAUDI_TZ).strftime('%H:%M:%S AST')} - OK"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -341,28 +341,49 @@ def get_sr_realtime():
             "s_d1": live-15, "r_d1": live+15,
         }
 
+def get_main_keyboard():
+    keyboard = [
+        [KeyboardButton("⚡ SCALPING M5"), KeyboardButton("⚡ SCALPING M15"), KeyboardButton("🏹 SWING")],
+        [KeyboardButton("📈 TREND"), KeyboardButton("🔮 ANALISIS"), KeyboardButton("🛡️ SR")],
+        [KeyboardButton("💰 LIVE"), KeyboardButton("⏰ JAM"), KeyboardButton("📊 COT")],
+        [KeyboardButton("🔑 PIVOT"), KeyboardButton("🧠 PSIKOLOGI"), KeyboardButton("✅ AUTO ON"), KeyboardButton("❌ AUTO OFF")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     saudi = now_saudi()
+    keyboard = get_main_keyboard()
     await update.message.reply_text(
-        f"🕌 *V19 REAL-TIME - MADINAH 100%*\n"
-        f"⏰ {saudi.strftime('%H:%M:%S AST %d %b')}\n"
-        f"Live {get_live():.2f}\n\n"
-        f"*SCALPING:*\n"
-        f"/scalping5 - M5 Kolaborasi\n"
-        f"/scalping15 - M15 Kolaborasi\n"
-        f"*SWING:*\n"
-        f"/swing - Harian D1 Kolaborasi\n"
-        f"*ANALISIS LENGKAP:*\n"
-        f"/analisis - Gabungan semua data\n"
-        f"/trend - Trend anti bentrok\n"
-        f"/jam - Jam terbaik histori\n"
-        f"/cot - COT Bandar\n"
-        f"*AUTO:*\n"
-        f"/auto_on - Hidupkan 3 notif (M5,M15,SWING) Kolaborasi\n"
-        f"/auto_off - Matikan\n\n"
+        f"🕌 *V21 DENGAN TOMBOL - MADINAH 100%*
+"
+        f"⏰ {saudi.strftime('%H:%M:%S AST %d %b')}
+"
+        f"📍 Madinah | Live {get_live():.2f}
+
+"
+        f"Pilih tombol di bawah biar gak perlu ngetik! 👇
+
+"
+        f"*TOMBOL:*
+"
+        f"⚡ SCALPING M5 - Sinyal 5 menit
+"
+        f"⚡ SCALPING M15 - Sinyal 15 menit
+"
+        f"🏹 SWING - Harian hold 1-3 hari
+"
+        f"📈 TREND - Real-time per TF
+"
+        f"🔮 ANALISIS - Kolaborasi lengkap
+"
+        f"🛡️ SR - Support Resist terbaru + prediksi
+
+"
         f"✅ Kolaborasi: Trend+RSI+COT+Histori Lama & Baru",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=keyboard
     )
+
 
 async def live_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = now_saudi()
@@ -617,13 +638,52 @@ async def auto_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             job.schedule_removal()
     await update.message.reply_text("❌ Auto OFF - M5/M15/SWING dimatikan", parse_mode="Markdown")
 
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    # Map button text to commands
+    mapping = {
+        "⚡ SCALPING M5": scalping5_cmd,
+        "⚡ SCALPING M15": scalping15_cmd,
+        "🏹 SWING": swing_cmd,
+        "📈 TREND": trend_cmd,
+        "🔮 ANALISIS": analisis_cmd,
+        "🛡️ SR": sr_cmd,
+        "💰 LIVE": live_cmd,
+        "⏰ JAM": jam_cmd,
+        "📊 COT": cot_cmd,
+        "🔑 PIVOT": pivot_cmd,
+        "🧠 PSIKOLOGI": psikologi_cmd,
+        "✅ AUTO ON": auto_on_cmd,
+        "❌ AUTO OFF": auto_off_cmd,
+        "SCALPING M5": scalping5_cmd,
+        "SCALPING M15": scalping15_cmd,
+        "SWING": swing_cmd,
+        "TREND": trend_cmd,
+        "ANALISIS": analisis_cmd,
+        "SR": sr_cmd,
+        "LIVE": live_cmd,
+        "JAM": jam_cmd,
+        "COT": cot_cmd,
+    }
+    if text in mapping:
+        await mapping[text](update, context)
+    elif "SCALPING" in text.upper():
+        await scalping5_cmd(update, context)
+    elif "SWING" in text.upper():
+        await swing_cmd(update, context)
+    else:
+        # Unknown text, show keyboard again
+        await start(update, context)
+
+
 def main():
     import threading
     from flask import Flask
     flask_app = Flask(__name__)
     @flask_app.route('/')
     def home():
-        return f"V18 OK {now_saudi()}"
+        return f"V21 OK {now_saudi()}"
     def run_flask():
         port = int(os.environ.get("PORT", 10000))
         flask_app.run(host="0.0.0.0", port=port)
@@ -653,13 +713,14 @@ def main():
     app.add_handler(CommandHandler("psikolog", psikologi_cmd))
     app.add_handler(CommandHandler("auto_on", auto_on_cmd))
     app.add_handler(CommandHandler("auto_off", auto_off_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
     
     if CHAT_ID:
         app.job_queue.run_repeating(auto_notif_5m, interval=300, first=60, name="auto5")
         app.job_queue.run_repeating(auto_notif_15m, interval=900, first=120, name="auto15")
         app.job_queue.run_repeating(auto_notif_swing, interval=3600, first=180, name="autoswing")
     
-    print(f"=== V20 SR PSIKOLOGI {now_saudi().strftime('%H:%M AST')} STARTED ===")
+    print(f"=== V21 TOMBOL {now_saudi().strftime('%H:%M AST')} STARTED ===")
     app.run_polling()
 
 if __name__ == "__main__":
