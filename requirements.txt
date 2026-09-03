@@ -1,6 +1,1 @@
-requests==2.31.0
-yfinance==0.2.40
-pandas==2.1.4
-python-telegram-bot==20.7
-lxml==4.9.3
-pytz==2024.1
+
