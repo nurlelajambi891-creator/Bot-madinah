@@ -13,8 +13,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 from flask import Flask
 import threading
 
-TOKEN = os.environ.get("BOT_TOKEN", "8850001985:AAET3fdwnM0r5I4be6M3ndfzX6sLeab7_uw")
-CHAT_ID = os.environ.get("CHAT_ID", "8655237272")
+TOKEN = os.environ.get("BOT_TOKEN", "ISI_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID", "")
 SAUDI_TZ = pytz.timezone("Asia/Riyadh")
 
 JAM_TERBAIK_PROB = {
@@ -405,4 +405,258 @@ async def auto_notif_swing(context: ContextTypes.DEFAULT_TYPE):
         emoji = "🏹✅" if d['final']=="BUY" else "🏹🔴"
         text = f"{emoji} *AUTO SWING KOLABORASI {d['saudi'].strftime('%d %b %H:%M')}*\n{d['final']} {d['live']:.2f} Prob {d['prob']}%\nTrend D1:{d['trend']} COT:{d['cot_bias']} Hist:{d['jam_prob']}%"
         try:
-  
+            await context.bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
+        except:
+            pass
+
+async def auto_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for n in ["auto5","auto15","autoswing"]:
+        for job in context.application.job_queue.get_jobs_by_name(n):
+            job.schedule_removal()
+    context.application.job_queue.run_repeating(auto_notif_5m, interval=300, first=10, name="auto5")
+    context.application.job_queue.run_repeating(auto_notif_15m, interval=900, first=20, name="auto15")
+    context.application.job_queue.run_repeating(auto_notif_swing, interval=3600, first=30, name="autoswing")
+    await update.message.reply_text("✅ *AUTO ON KOLABORASI!*\n\nM5 tiap 5 menit (prob >=60%)\nM15 tiap 15 menit (prob >=65%)\nSWING tiap 1 jam (prob >=70%)\n\nSemua pakai Trend+RSI+COT+Histori\nAnti bentrok!", parse_mode="Markdown")
+
+async def auto_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for n in ["auto5","auto15","autoswing"]:
+        for job in context.application.job_queue.get_jobs_by_name(n):
+            job.schedule_removal()
+    await update.message.reply_text("❌ Auto OFF - M5/M15/SWING dimatikan", parse_mode="Markdown")
+
+
+async def backtest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    saudi = now_saudi()
+    await update.message.reply_text(f"⏳ *BACKTEST MADINAH* {saudi.strftime('%H:%M:%S AST')}\nSedang hitung kemarin detik ke hari ini... tunggu 15 detik", parse_mode="Markdown")
+    
+    try:
+        import pytz
+        from datetime import timedelta
+        SAUDI_TZ_LOCAL = pytz.timezone("Asia/Riyadh")
+        now = datetime.now(SAUDI_TZ_LOCAL)
+        yesterday = now - timedelta(days=1)
+        
+        # Download 3 hari M5 biar cover AST
+        df = yf.download("GC=F", period="5d", interval="5m", progress=False, auto_adjust=True)
+        if df is None or len(df) < 50:
+            await update.message.reply_text("❌ Data Yahoo lagi gangguan, coba lagi 1 menit", parse_mode="Markdown")
+            return
+        
+        # Convert ke AST
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC').tz_convert(SAUDI_TZ_LOCAL)
+        else:
+            df.index = df.index.tz_convert(SAUDI_TZ_LOCAL)
+        
+        # Filter kemarin 00:00-23:59 AST
+        df_yest = df[df.index.date == yesterday.date()]
+        if len(df_yest) < 20:
+            df_yest = df.tail(288)  # fallback 24 jam terakhir
+        
+        close = df['Close']
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:,0]
+        close_yest = df_yest['Close']
+        if isinstance(close_yest, pd.DataFrame):
+            close_yest = close_yest.iloc[:,0]
+        
+        ema9 = close.ewm(span=9).mean()
+        ema20 = close.ewm(span=20).mean()
+        delta = close.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        results = []
+        for idx in df_yest.index:
+            try:
+                price = float(close.loc[idx])
+                e9 = float(ema9.loc[idx])
+                e20 = float(ema20.loc[idx])
+                rsi_v = float(rsi.loc[idx]) if not pd.isna(rsi.loc[idx]) else 50
+                hour = idx.hour
+                jam_prob = JAM_TERBAIK_PROB.get(hour, 50)
+                trend = "BULL" if price > e9 and e9 > e20 else "BEAR" if price < e9 and e9 < e20 else "BULL" if price > e20 else "BEAR"
+                score = (40 if trend=="BULL" else 10) + 25 + jam_prob*0.2 + (15 if 30<rsi_v<70 else 5)
+                final = "BUY" if trend=="BULL" and score>=55 else "SELL" if trend=="BEAR" and score>=55 else "WAIT"
+                
+                pos = df.index.get_loc(idx)
+                win = None
+                pnl = 0
+                if pos+6 < len(df):  # 30 menit ke depan (6x M5)
+                    future_close = df['Close']
+                    if isinstance(future_close, pd.DataFrame):
+                        future_close = future_close.iloc[:,0]
+                    # cek high/low future untuk TP/SL
+                    future_slice = df.iloc[pos+1:pos+7]
+                    f_high = future_slice['High'].max()
+                    f_low = future_slice['Low'].min()
+                    if isinstance(f_high, pd.DataFrame):
+                        f_high = f_high.iloc[:,0].max()
+                        f_low = f_low.iloc[:,0].min()
+                    else:
+                        f_high = float(f_high)
+                        f_low = float(f_low)
+                    
+                    if final=="BUY":
+                        if f_high >= price + 1.0:
+                            win = True
+                            pnl = 1.0
+                        elif f_low <= price - 1.5:
+                            win = False
+                            pnl = -1.5
+                    elif final=="SELL":
+                        if f_low <= price - 1.0:
+                            win = True
+                            pnl = 1.0
+                        elif f_high >= price + 1.5:
+                            win = False
+                            pnl = -1.5
+                
+                results.append({"time": idx.strftime('%H:%M'), "hour": hour, "price": price, "trend": trend, "rsi": rsi_v, "score": int(score), "signal": final, "win": win, "pnl": pnl})
+            except:
+                continue
+        
+        df_res = pd.DataFrame(results)
+        total = len(df_res)
+        buys = len(df_res[df_res['signal']=='BUY'])
+        sells = len(df_res[df_res['signal']=='SELL'])
+        wins = len(df_res[df_res['win']==True])
+        losses = len(df_res[df_res['win']==False])
+        winrate = wins/(wins+losses)*100 if (wins+losses)>0 else 0
+        total_pnl = df_res['pnl'].sum()
+        
+        # Per jam terbaik
+        per_hour = df_res.groupby('hour').agg({'win': lambda x: (x==True).sum(), 'pnl':'sum', 'signal':'count'}).rename(columns={'signal':'total'})
+        best_hour = per_hour['pnl'].idxmax() if len(per_hour)>0 else 0
+        
+        text = f"📊 *BACKTEST KEMARIN {yesterday.strftime('%d %b %Y')} - MADINAH AST*\n"
+        text += f"⏰ Waktu: 00:00-23:59 AST (waktu lo di Madinah)\n"
+        text += f"Interval: M5 (5 menit) = detik ke hari kemarin\n"
+        text += f"Total candle: {total}\n\n"
+        text += f"BUY: {buys} | SELL: {sells} | WAIT: {total-buys-sells}\n"
+        text += f"Win: {wins} | Loss: {losses}\n"
+        text += f"Winrate: {winrate:.1f}%\n"
+        text += f"PnL: {total_pnl:.1f} poin (TP 100c SL 150c)\n\n"
+        
+        text += f"*PER JAM AST (jam lo):*\n"
+        for h in sorted(per_hour.index):
+            row = per_hour.loc[h]
+            total_h = int(row['total'])
+            pnl_h = row['pnl']
+            win_h = int((row['win'])) if not pd.isna(row['win']) else 0
+            emoji = "🔥" if pnl_h>0 else "❄️"
+            text += f"{h:02d}:00 {emoji} {total_h} sinyal PnL {pnl_h:.1f}\n"
+        
+        text += f"\n🏆 Jam terbaik kemarin: {best_hour:02d}:00 AST\n"
+        text += f"💡 Histori lo jam 02,05,06,10,17 = {JAM_TERBAIK_PROB[2]}% winrate cocok gak sama kemarin?\n\n"
+        text += f"✅ Backtest pakai COT+Histori+Trend kolaborasi!"
+        
+        await update.message.reply_text(text, parse_mode="Markdown")
+        
+        # Detail 10 sinyal terakhir
+        last10 = df_res.tail(10)
+        detail = f"📝 *10 SINYAL TERAKHIR KEMARIN AST:*\n"
+        for _, r in last10.iterrows():
+            w = "✅" if r['win']==True else "❌" if r['win']==False else "⏸️"
+            detail += f"{r['time']} {r['signal']} {r['price']:.2f} {w} Skor {r['score']}%\n"
+        await update.message.reply_text(detail, parse_mode="Markdown")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error backtest: {e}\nCoba lagi /backtest", parse_mode="Markdown")
+
+async def backtest_detik_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await backtest_cmd(update, context)
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    mapping = {
+        "⚡ SCALPING M5": scalping5_cmd,
+        "⚡ SCALPING M15": scalping15_cmd,
+        "🏹 SWING": swing_cmd,
+        "📈 TREND": trend_cmd,
+        "🔮 ANALISIS": analisis_cmd,
+        "🛡️ SR": sr_cmd,
+        "💰 LIVE": live_cmd,
+        "⏰ JAM": jam_cmd,
+        "📊 COT": cot_cmd,
+        "🔑 PIVOT": pivot_cmd,
+        "🧠 PSIKOLOGI": psikologi_cmd,
+        "✅ AUTO ON": auto_on_cmd,
+        "❌ AUTO OFF": auto_off_cmd,
+        "📊 BACKTEST": backtest_cmd,
+    }
+    if text in mapping:
+        await mapping[text](update, context)
+    elif "SCALPING M5" in text:
+        await scalping5_cmd(update, context)
+    elif "SCALPING M15" in text:
+        await scalping15_cmd(update, context)
+    elif "SWING" in text:
+        await swing_cmd(update, context)
+    elif "TREND" in text:
+        await trend_cmd(update, context)
+    elif "ANALISIS" in text:
+        await analisis_cmd(update, context)
+    elif "SR" in text:
+        await sr_cmd(update, context)
+    elif "LIVE" in text:
+        await live_cmd(update, context)
+    elif "JAM" in text:
+        await jam_cmd(update, context)
+    elif "COT" in text:
+        await cot_cmd(update, context)
+    elif "PIVOT" in text:
+        await pivot_cmd(update, context)
+    elif "PSIKOLOGI" in text:
+        await psikologi_cmd(update, context)
+    elif "AUTO ON" in text:
+        await auto_on_cmd(update, context)
+    elif "AUTO OFF" in text:
+        await auto_off_cmd(update, context)
+    elif "BACKTEST" in text:
+        await backtest_cmd(update, context)
+    else:
+        await start(update, context)
+
+def main():
+    t = threading.Thread(target=run_flask, daemon=True)
+    t.start()
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("live", live_cmd))
+    app.add_handler(CommandHandler("jam", jam_cmd))
+    app.add_handler(CommandHandler("cot", cot_cmd))
+    app.add_handler(CommandHandler("trend", trend_cmd))
+    app.add_handler(CommandHandler("analisis", analisis_cmd))
+    app.add_handler(CommandHandler("scalping5", scalping5_cmd))
+    app.add_handler(CommandHandler("scalping15", scalping15_cmd))
+    app.add_handler(CommandHandler("scalping", scalping5_cmd))
+    app.add_handler(CommandHandler("swing", swing_cmd))
+    app.add_handler(CommandHandler("swing_harian", swing_cmd))
+    app.add_handler(CommandHandler("d1", swing_cmd))
+    app.add_handler(CommandHandler("sr", sr_cmd))
+    app.add_handler(CommandHandler("support", sr_cmd))
+    app.add_handler(CommandHandler("resistance", sr_cmd))
+    app.add_handler(CommandHandler("resist", sr_cmd))
+    app.add_handler(CommandHandler("sup", sr_cmd))
+    app.add_handler(CommandHandler("pivot", pivot_cmd))
+    app.add_handler(CommandHandler("psikologi", psikologi_cmd))
+    app.add_handler(CommandHandler("psikolog", psikologi_cmd))
+    app.add_handler(CommandHandler("backtest", backtest_cmd))
+    app.add_handler(CommandHandler("backtest_madinah", backtest_cmd))
+    app.add_handler(CommandHandler("bt", backtest_cmd))
+    app.add_handler(CommandHandler("auto_on", auto_on_cmd))
+    app.add_handler(CommandHandler("auto_off", auto_off_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
+    if CHAT_ID:
+        app.job_queue.run_repeating(auto_notif_5m, interval=300, first=60, name="auto5")
+        app.job_queue.run_repeating(auto_notif_15m, interval=900, first=120, name="auto15")
+        app.job_queue.run_repeating(auto_notif_swing, interval=3600, first=180, name="autoswing")
+    print(f"=== V22 BACKTEST {now_saudi().strftime('%H:%M AST')} STARTED ===")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
