@@ -1,6 +1,6 @@
 
 """
-V21 DENGAN TOMBOL + SR REAL-TIME - MADINAH
+V22 BACKTEST MADINAH DETIK KE KEMARIN
 - M5, M15, SWING D1
 - Kolaborasi Trend+RSI+COT+Histori
 - Tombol Menu
@@ -27,7 +27,7 @@ JAM_TERBAIK_PROB = {
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home():
-    return f"Bot V21 Tombol - {datetime.now(SAUDI_TZ).strftime('%H:%M:%S AST')} - OK"
+    return f"Bot V22 Backtest - {datetime.now(SAUDI_TZ).strftime('%H:%M:%S AST')} - OK"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -226,7 +226,8 @@ def get_main_keyboard():
         [KeyboardButton("⚡ SCALPING M5"), KeyboardButton("⚡ SCALPING M15"), KeyboardButton("🏹 SWING")],
         [KeyboardButton("📈 TREND"), KeyboardButton("🔮 ANALISIS"), KeyboardButton("🛡️ SR")],
         [KeyboardButton("💰 LIVE"), KeyboardButton("⏰ JAM"), KeyboardButton("📊 COT")],
-        [KeyboardButton("🔑 PIVOT"), KeyboardButton("🧠 PSIKOLOGI"), KeyboardButton("✅ AUTO ON"), KeyboardButton("❌ AUTO OFF")]
+        [KeyboardButton("🔑 PIVOT"), KeyboardButton("🧠 PSIKOLOGI")],
+        [KeyboardButton("📊 BACKTEST"), KeyboardButton("✅ AUTO ON"), KeyboardButton("❌ AUTO OFF")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
@@ -245,7 +246,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏹 SWING - Harian hold 1-3 hari\n"
         f"📈 TREND - Real-time per TF\n"
         f"🔮 ANALISIS - Kolaborasi lengkap\n"
-        f"🛡️ SR - Support Resist terbaru + prediksi\n\n"
+        f"🛡️ SR - Support Resist terbaru + prediksi\n"
+        f"📊 BACKTEST - Detik ke kemarin waktu Madinah\n\n"
         f"✅ Kolaborasi: Trend+RSI+COT+Histori Lama & Baru"
     )
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -403,106 +405,4 @@ async def auto_notif_swing(context: ContextTypes.DEFAULT_TYPE):
         emoji = "🏹✅" if d['final']=="BUY" else "🏹🔴"
         text = f"{emoji} *AUTO SWING KOLABORASI {d['saudi'].strftime('%d %b %H:%M')}*\n{d['final']} {d['live']:.2f} Prob {d['prob']}%\nTrend D1:{d['trend']} COT:{d['cot_bias']} Hist:{d['jam_prob']}%"
         try:
-            await context.bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
-        except:
-            pass
-
-async def auto_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for n in ["auto5","auto15","autoswing"]:
-        for job in context.application.job_queue.get_jobs_by_name(n):
-            job.schedule_removal()
-    context.application.job_queue.run_repeating(auto_notif_5m, interval=300, first=10, name="auto5")
-    context.application.job_queue.run_repeating(auto_notif_15m, interval=900, first=20, name="auto15")
-    context.application.job_queue.run_repeating(auto_notif_swing, interval=3600, first=30, name="autoswing")
-    await update.message.reply_text("✅ *AUTO ON KOLABORASI!*\n\nM5 tiap 5 menit (prob >=60%)\nM15 tiap 15 menit (prob >=65%)\nSWING tiap 1 jam (prob >=70%)\n\nSemua pakai Trend+RSI+COT+Histori\nAnti bentrok!", parse_mode="Markdown")
-
-async def auto_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for n in ["auto5","auto15","autoswing"]:
-        for job in context.application.job_queue.get_jobs_by_name(n):
-            job.schedule_removal()
-    await update.message.reply_text("❌ Auto OFF - M5/M15/SWING dimatikan", parse_mode="Markdown")
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    mapping = {
-        "⚡ SCALPING M5": scalping5_cmd,
-        "⚡ SCALPING M15": scalping15_cmd,
-        "🏹 SWING": swing_cmd,
-        "📈 TREND": trend_cmd,
-        "🔮 ANALISIS": analisis_cmd,
-        "🛡️ SR": sr_cmd,
-        "💰 LIVE": live_cmd,
-        "⏰ JAM": jam_cmd,
-        "📊 COT": cot_cmd,
-        "🔑 PIVOT": pivot_cmd,
-        "🧠 PSIKOLOGI": psikologi_cmd,
-        "✅ AUTO ON": auto_on_cmd,
-        "❌ AUTO OFF": auto_off_cmd,
-    }
-    if text in mapping:
-        await mapping[text](update, context)
-    elif "SCALPING M5" in text:
-        await scalping5_cmd(update, context)
-    elif "SCALPING M15" in text:
-        await scalping15_cmd(update, context)
-    elif "SWING" in text:
-        await swing_cmd(update, context)
-    elif "TREND" in text:
-        await trend_cmd(update, context)
-    elif "ANALISIS" in text:
-        await analisis_cmd(update, context)
-    elif "SR" in text:
-        await sr_cmd(update, context)
-    elif "LIVE" in text:
-        await live_cmd(update, context)
-    elif "JAM" in text:
-        await jam_cmd(update, context)
-    elif "COT" in text:
-        await cot_cmd(update, context)
-    elif "PIVOT" in text:
-        await pivot_cmd(update, context)
-    elif "PSIKOLOGI" in text:
-        await psikologi_cmd(update, context)
-    elif "AUTO ON" in text:
-        await auto_on_cmd(update, context)
-    elif "AUTO OFF" in text:
-        await auto_off_cmd(update, context)
-    else:
-        await start(update, context)
-
-def main():
-    t = threading.Thread(target=run_flask, daemon=True)
-    t.start()
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("live", live_cmd))
-    app.add_handler(CommandHandler("jam", jam_cmd))
-    app.add_handler(CommandHandler("cot", cot_cmd))
-    app.add_handler(CommandHandler("trend", trend_cmd))
-    app.add_handler(CommandHandler("analisis", analisis_cmd))
-    app.add_handler(CommandHandler("scalping5", scalping5_cmd))
-    app.add_handler(CommandHandler("scalping15", scalping15_cmd))
-    app.add_handler(CommandHandler("scalping", scalping5_cmd))
-    app.add_handler(CommandHandler("swing", swing_cmd))
-    app.add_handler(CommandHandler("swing_harian", swing_cmd))
-    app.add_handler(CommandHandler("d1", swing_cmd))
-    app.add_handler(CommandHandler("sr", sr_cmd))
-    app.add_handler(CommandHandler("support", sr_cmd))
-    app.add_handler(CommandHandler("resistance", sr_cmd))
-    app.add_handler(CommandHandler("resist", sr_cmd))
-    app.add_handler(CommandHandler("sup", sr_cmd))
-    app.add_handler(CommandHandler("pivot", pivot_cmd))
-    app.add_handler(CommandHandler("psikologi", psikologi_cmd))
-    app.add_handler(CommandHandler("psikolog", psikologi_cmd))
-    app.add_handler(CommandHandler("auto_on", auto_on_cmd))
-    app.add_handler(CommandHandler("auto_off", auto_off_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
-    if CHAT_ID:
-        app.job_queue.run_repeating(auto_notif_5m, interval=300, first=60, name="auto5")
-        app.job_queue.run_repeating(auto_notif_15m, interval=900, first=120, name="auto15")
-        app.job_queue.run_repeating(auto_notif_swing, interval=3600, first=180, name="autoswing")
-    print(f"=== V21 TOMBOL {now_saudi().strftime('%H:%M AST')} STARTED ===")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+  
