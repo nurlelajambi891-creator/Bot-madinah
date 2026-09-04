@@ -7,8 +7,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 from flask import Flask
 import threading
 
-TOKEN = os.environ.get("BOT_TOKEN", "ISI_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID", "")
+TOKEN = os.environ.get("BOT_TOKEN", "8850001985:AAET3fdwnM0r5I4be6M3ndfzX6sLeab7_uw")
+CHAT_ID = os.environ.get("CHAT_ID", "8655237272")
 SAUDI_TZ = pytz.timezone("Asia/Riyadh")
 LAST_CHAT_ID = {"id": CHAT_ID}
 
